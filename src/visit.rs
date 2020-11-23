@@ -1,9 +1,14 @@
-use std::path::PathBuf;
 use std::io::Read;
+use std::path::PathBuf;
 
 use proc_macro2::{Ident, TokenStream as TokenStream2, TokenTree};
 use quote::quote;
-use syn::{parse_quote, spanned::Spanned, visit_mut::{self, VisitMut}, Expr, ExprBlock, File, ImplItem, Item, TraitItem, UseTree, Attribute};
+use syn::{
+    parse_quote,
+    spanned::Spanned,
+    visit_mut::{self, VisitMut},
+    Attribute, Expr, ExprBlock, File, ImplItem, Item, TraitItem, UseTree,
+};
 
 use crate::Version;
 
@@ -99,8 +104,7 @@ impl VisitMut for AmphisbaenaConversion {
                 } else {
                     false
                 };
-                if item.content.is_none() || empty_mod
-                {
+                if item.content.is_none() || empty_mod {
                     item.semi = None;
 
                     let mut path_opt = None;
@@ -111,14 +115,10 @@ impl VisitMut for AmphisbaenaConversion {
                     for (ix, attr) in item.attrs.iter().enumerate() {
                         let path = parse_attributes(attr);
                         if let Some(path) = path {
-                            path_opt = Some(Res {
-                                filename: path,
-                                ix,
-                            });
+                            path_opt = Some(Res { filename: path, ix });
                             break;
                         }
                     }
-
 
                     if path_opt.is_none() {
                         return;
@@ -131,12 +131,12 @@ impl VisitMut for AmphisbaenaConversion {
                     path.remove(0);
                     path.remove(path.len() - 1);
                     let path_buf = PathBuf::from(path.as_str());
-                    let mut file = std::fs::File::open(path_buf).expect(&format!("Fail to find mod {}", path));
+                    let mut file =
+                        std::fs::File::open(path_buf).expect(&format!("Fail to find mod {}", path));
                     let mut content = String::new();
                     file.read_to_string(&mut content).unwrap();
 
                     let mut ast = syn::parse_file(&content).unwrap();
-
 
                     self.visit_file_mut(&mut ast);
                     item.attrs.extend(ast.attrs);
@@ -158,10 +158,8 @@ fn parse_attributes(attrs: &Attribute) -> Option<String> {
             if &arg == "non_inline_module" {
                 let tree: TokenTree = syn::parse(attrs.tokens.clone().into()).unwrap();
                 match tree {
-                    TokenTree::Group(group) => {
-                        Some(group.stream().to_string())
-                    }
-                    _ => { None }
+                    TokenTree::Group(group) => Some(group.stream().to_string()),
+                    _ => None,
                 }
             } else {
                 None

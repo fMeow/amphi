@@ -28,7 +28,10 @@ use proc_macro::TokenStream;
 
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
-use syn::{parse_macro_input, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Lit, NestedMeta, Meta};
+use syn::{
+    parse_macro_input, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Lit, Meta,
+    NestedMeta,
+};
 
 use crate::visit::{AmphisbaenaConversion, AsyncAwaitRemoval};
 
@@ -61,9 +64,7 @@ fn parse_args(attr_args: AttributeArgs) -> Result<Mode, (Span, &'static str)> {
         1 => {
             let attr = attr_args.get(0).unwrap();
             match attr {
-                NestedMeta::Lit(lit) => {
-                    Err((lit.span(), "Arguments shoule not be str", ))
-                }
+                NestedMeta::Lit(lit) => Err((lit.span(), "Arguments shoule not be str")),
                 NestedMeta::Meta(meta) => {
                     if let Meta::Path(path) = meta {
                         match path.segments.len() {
@@ -75,11 +76,11 @@ fn parse_args(attr_args: AttributeArgs) -> Result<Mode, (Span, &'static str)> {
                                 } else if &arg == "sync_only" {
                                     Ok(Mode::SyncOnly)
                                 } else {
-                                    Err((meta.span(), "Only accepts `async_only` or `sync_only`", ))
+                                    Err((meta.span(), "Only accepts `async_only` or `sync_only`"))
                                 }
                             }
 
-                            _ => Err((meta.span(), "Only accepts up to 1 argument", )),
+                            _ => Err((meta.span(), "Only accepts up to 1 argument")),
                         }
                     } else {
                         Err((
@@ -90,9 +91,7 @@ fn parse_args(attr_args: AttributeArgs) -> Result<Mode, (Span, &'static str)> {
                 }
             }
         }
-        _ => {
-            Err((Span::call_site(), "Only one argument is accepted", ))
-        }
+        _ => Err((Span::call_site(), "Only one argument is accepted")),
     }
 }
 
@@ -180,17 +179,13 @@ fn parse_test_args(attr_args: AttributeArgs) -> Result<String, (Span, &'static s
                         ))
                     }
                 }
-                NestedMeta::Meta(meta) => {
-                    Err((
-                        meta.span(),
-                        "Arguments should be str: like `#[test(\"amphi\")]`",
-                    ))
-                }
+                NestedMeta::Meta(meta) => Err((
+                    meta.span(),
+                    "Arguments should be str: like `#[test(\"amphi\")]`",
+                )),
             }
         }
-        _ => {
-            Err((Span::call_site(), "Accept up to one argument", ))
-        }
+        _ => Err((Span::call_site(), "Accept up to one argument")),
     }
 }
 
@@ -200,9 +195,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     let mod_name = match parse_test_args(attr_args) {
         Ok(mod_name) => mod_name,
         Err((span, message)) => {
-            return syn::Error::new(span, message)
-                .to_compile_error()
-                .into();
+            return syn::Error::new(span, message).to_compile_error().into();
         }
     };
 
