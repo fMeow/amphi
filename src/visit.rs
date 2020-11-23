@@ -89,7 +89,7 @@ impl VisitMut for AmphisbaenaConversion {
             Item::Use(item_use) => {
                 if item_use.leading_colon.is_none() {
                     // leading_colon is some indicating using crates
-                    // here is when use amphisbaena mod
+                    // here is when use amphi mod
                     self.replace_use_tree(&mut item_use.tree);
                 }
             }

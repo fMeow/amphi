@@ -1,21 +1,24 @@
 //!
-//! # Amphisbaena
+//! # amphi
 //! **Why bother writing similar code twice for blocking and async code?**
 //!
-//! [![Build Status](https://github.com/fMeow/amphisbaena/workflows/CI%20%28Linux%29/badge.svg?branch=master)](https://github.com/fMeow/amphisbaena/actions)
+//! amphi is an English prefix meaning `both`. This crate provides macro `amphi` to get
+//! blocking code aside async implementation for free.
+//!
+//! [![Build Status](https://github.com/fMeow/amphi/workflows/CI%20%28Linux%29/badge.svg?branch=master)](https://github.com/fMeow/amphi/actions)
 //! [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-//! [![Latest Version](https://img.shields.io/crates/v/amphisbaena.svg)](https://crates.io/crates/amphisbaena)
-//! [![amphisbaena](https://docs.rs/amphisbaena/badge.svg)](https://docs.rs/amphisbaena)
+//! [![Latest Version](https://img.shields.io/crates/v/amphi.svg)](https://crates.io/crates/amphi)
+//! [![amphi](https://docs.rs/amphi/badge.svg)](https://docs.rs/amphi)
 //!
 //! When implementing both sync and async versions of API in a crate, most API
 //! of the two version are almost the same except for some async/await keyword.
 //!
-//! Write async code once and get blocking code for free with `amphisbaena`.
+//! Write async code once and get blocking code for free with `amphi`.
 //!
 //! # How to use
-//! 1. place all your async code in a mod. By default, the mod should call `amphisbaena`,
+//! 1. place all your async code in a mod. By default, the mod should call `amphi`,
 //! but it can be customize.
-//! 2. apply `amphisbaena` attribute macro on the mod declaration code.
+//! 2. apply `amphi` attribute macro on the mod declaration code.
 //!
 //! # LICENSE
 //! MIT
@@ -81,7 +84,7 @@ fn parse_args(attr_args: AttributeArgs) -> Result<Mode, (Span, &'static str)> {
                     } else {
                         Err((
                             meta.span(),
-                            "Arguments shoule be str: `#[amphisbaena(sync_only)]` or `#[amphisbaena(async_only)]`",
+                            "Arguments shoule be str: `#[amphi(sync_only)]` or `#[amphi(async_only)]`",
                         ))
                     }
                 }
@@ -96,7 +99,7 @@ fn parse_args(attr_args: AttributeArgs) -> Result<Mode, (Span, &'static str)> {
 // TODO
 //  1. allow mod in separate file
 #[proc_macro_attribute]
-pub fn amphisbaena(args: TokenStream, input: TokenStream) -> TokenStream {
+pub fn amphi(args: TokenStream, input: TokenStream) -> TokenStream {
     let attr_args = parse_macro_input!(args as AttributeArgs);
     let mode = match parse_args(attr_args) {
         Ok(mode) => mode,
@@ -163,7 +166,7 @@ fn remove_ident_from_attribute(attrs: &mut Vec<Attribute>, ident: &str) {
 
 fn parse_test_args(attr_args: AttributeArgs) -> Result<String, (Span, &'static str)> {
     match attr_args.len() {
-        0 => Ok("amphisbaena".to_string()),
+        0 => Ok("amphi".to_string()),
         1 => {
             let attr = attr_args.get(0).unwrap();
             match attr {
@@ -173,14 +176,14 @@ fn parse_test_args(attr_args: AttributeArgs) -> Result<String, (Span, &'static s
                     } else {
                         Err((
                             lit.span(),
-                            "Arguments should be str: like `#[test(\"amphisbaena\")]`",
+                            "Arguments should be str: like `#[test(\"amphi\")]`",
                         ))
                     }
                 }
                 NestedMeta::Meta(meta) => {
                     Err((
                         meta.span(),
-                        "Arguments should be str: like `#[test(\"amphisbaena\")]`",
+                        "Arguments should be str: like `#[test(\"amphi\")]`",
                     ))
                 }
             }
