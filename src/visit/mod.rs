@@ -1,16 +1,19 @@
 use std::io::Read;
 use std::path::PathBuf;
 
-use proc_macro2::{Ident, TokenStream as TokenStream2, TokenTree};
+use proc_macro2::{Ident, TokenStream as TokenStream2};
 use quote::quote;
 use syn::{
     parse_quote,
     spanned::Spanned,
     visit_mut::{self, VisitMut},
-    Attribute, Expr, ExprBlock, File, ImplItem, Item, TraitItem, UseTree,
+    Expr, ExprBlock, File, ImplItem, Item, TraitItem, UseTree,
 };
 
+use crate::visit::attr::pop_attribute;
 use crate::Version;
+
+mod attr;
 
 pub(crate) struct AmphisbaenaConversion {
     version: Version,
@@ -25,29 +28,25 @@ impl AmphisbaenaConversion {
         }
     }
     pub fn convert(&mut self, item: TokenStream2) -> TokenStream2 {
-        // if let Item::Mod(tree) = &mut syntax_tree.items.get_mut(0).unwrap() {
-        //     let mut ve = vec![];
-        //     for (ix, file) in tree.content.as_ref().unwrap().1.iter().enumerate() {
-        //         match file {
-        //             Item::Mod(item) => {
-        //                 let empty_mod = if let Some(true) = item.content.as_ref().map(|x| x.1.is_empty()) {
-        //                     true
-        //                 } else {
-        //                     false
-        //                 };
-        //                 if item.content.is_none() || empty_mod
-        //                 { ve.push(ix); }
-        //             }
-        //             _ => {}
-        //         }
-        //     }
-        //     for i in 0..ve.len() {
-        //         tree.content.as_mut().unwrap().1.remove(*ve.get(i).unwrap() - i);
-        //     }
-        //     println!("{:?}", syntax_tree);
-        // }
+        let preserve = self.version.as_str();
+        let remove = match self.version {
+            Version::Async => Version::Sync,
+            Version::Sync => Version::Async,
+        }
+        .as_str();
+
         let mut syntax_tree: File = syn::parse(item.into()).unwrap();
         self.visit_file_mut(&mut syntax_tree);
+
+        // remove item that violate current version
+        // preserve item that conform to current version, and remove tagging attribute
+        syntax_tree.items.iter_mut().for_each(|item| {
+            if let Item::Mod(item_mod) = item {
+                attr::mod_remove_items(item_mod, remove);
+                attr::mod_remove_attr(item_mod, preserve);
+            }
+        });
+
         quote!(#syntax_tree)
     }
 
@@ -90,6 +89,7 @@ impl VisitMut for AmphisbaenaConversion {
     fn visit_item_mut(&mut self, item: &mut Item) {
         // Delegate to the default impl to visit nested expressions.
         visit_mut::visit_item_mut(self, item);
+
         match item {
             Item::Use(item_use) => {
                 if item_use.leading_colon.is_none() {
@@ -107,32 +107,21 @@ impl VisitMut for AmphisbaenaConversion {
                 if item.content.is_none() || empty_mod {
                     item.semi = None;
 
-                    let mut path_opt = None;
-                    struct Res {
-                        filename: String,
-                        ix: usize,
-                    }
-                    for (ix, attr) in item.attrs.iter().enumerate() {
-                        let path = parse_attributes(attr);
-                        if let Some(path) = path {
-                            path_opt = Some(Res { filename: path, ix });
-                            break;
-                        }
-                    }
-
-                    if path_opt.is_none() {
+                    let filename = pop_attribute(&mut item.attrs, "non_inline_module");
+                    if filename.is_none() {
+                        // early stop here
                         return;
                     }
 
-                    let res = path_opt.unwrap();
-                    item.attrs.remove(res.ix);
-
-                    let mut path = res.filename;
-                    path.remove(0);
-                    path.remove(path.len() - 1);
-                    let path_buf = PathBuf::from(path.as_str());
-                    let mut file =
-                        std::fs::File::open(path_buf).expect(&format!("Fail to find mod {}", path));
+                    let mut path = filename.unwrap();
+                    if path.starts_with("\"") && path.ends_with("\"") {
+                        path.remove(0);
+                        path.remove(path.len() - 1);
+                    } else {
+                        // TODO error, path should be string
+                    }
+                    let mut file = std::fs::File::open(PathBuf::from(path.as_str()))
+                        .expect(&format!("Fail to find mod {}", path));
                     let mut content = String::new();
                     file.read_to_string(&mut content).unwrap();
 
@@ -146,26 +135,6 @@ impl VisitMut for AmphisbaenaConversion {
 
             _ => {}
         }
-    }
-}
-
-fn parse_attributes(attrs: &Attribute) -> Option<String> {
-    match attrs.path.segments.len() {
-        0 => None,
-        1 => {
-            let path_seg = attrs.path.segments.first().unwrap();
-            let arg = path_seg.ident.to_string();
-            if &arg == "non_inline_module" {
-                let tree: TokenTree = syn::parse(attrs.tokens.clone().into()).unwrap();
-                match tree {
-                    TokenTree::Group(group) => Some(group.stream().to_string()),
-                    _ => None,
-                }
-            } else {
-                None
-            }
-        }
-        _ => None,
     }
 }
 

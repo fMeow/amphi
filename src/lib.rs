@@ -1,19 +1,19 @@
 //!
 //! # amphi
-//! **Why bother writing similar code twice for blocking and async code?**
-//!
-//! amphi is an English prefix meaning `both`. This crate provides macro `amphi` to get
-//! blocking code aside async implementation for free.
-//!
 //! [![Build Status](https://github.com/fMeow/amphi/workflows/CI%20%28Linux%29/badge.svg?branch=master)](https://github.com/fMeow/amphi/actions)
 //! [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 //! [![Latest Version](https://img.shields.io/crates/v/amphi.svg)](https://crates.io/crates/amphi)
 //! [![amphi](https://docs.rs/amphi/badge.svg)](https://docs.rs/amphi)
 //!
+//! **Why bother writing similar code twice for blocking and async code?**
+//!
 //! When implementing both sync and async versions of API in a crate, most API
 //! of the two version are almost the same except for some async/await keyword.
+//! `amphi` provides a macro to get blocking code from async implementation for free,
+//! alongside with the async code.
 //!
-//! Write async code once and get blocking code for free with `amphi`.
+//! amphi is an English prefix meaning `both`. This crate copy the async code and strip all
+//! async/await keyword to get a blocking implementation.
 //!
 //! # How to use
 //! 1. place all your async code in a mod. By default, the mod should call `amphi`,
@@ -39,15 +39,15 @@ mod visit;
 
 #[derive(Copy, Clone)]
 enum Version {
-    Synchronous,
-    Asynchronous,
+    Sync,
+    Async,
 }
 
 impl Version {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Version::Synchronous => "sync",
-            Version::Asynchronous => "asynchronous",
+            Version::Sync => "sync",
+            Version::Async => "asynchronous",
         }
     }
 }
@@ -96,7 +96,8 @@ fn parse_args(attr_args: AttributeArgs) -> Result<Mode, (Span, &'static str)> {
 }
 
 // TODO
-//  1. allow mod in separate file
+//  1. load all files in a mod
+//  2. allow specifying async and sync implementation, #[amphi]
 #[proc_macro_attribute]
 pub fn amphi(args: TokenStream, input: TokenStream) -> TokenStream {
     let attr_args = parse_macro_input!(args as AttributeArgs);
@@ -131,9 +132,8 @@ pub fn amphi(args: TokenStream, input: TokenStream) -> TokenStream {
     };
 
     let asynchronous_mod =
-        AmphisbaenaConversion::new(Version::Asynchronous, mod_name.as_str()).convert(asynchronous);
-    let sync_mod =
-        AmphisbaenaConversion::new(Version::Synchronous, mod_name.as_str()).convert(sync);
+        AmphisbaenaConversion::new(Version::Async, mod_name.as_str()).convert(asynchronous);
+    let sync_mod = AmphisbaenaConversion::new(Version::Sync, mod_name.as_str()).convert(sync);
     let sync_mod = AsyncAwaitRemoval.remove_async_await(sync_mod);
 
     let out = quote! {
@@ -145,21 +145,13 @@ pub fn amphi(args: TokenStream, input: TokenStream) -> TokenStream {
 }
 
 fn remove_ident_from_attribute(attrs: &mut Vec<Attribute>, ident: &str) {
-    let mut to_remove = vec![];
-    for (ix, attr) in attrs.iter().enumerate() {
-        let mut matched = false;
-        'Segment: for seg in &attr.path.segments {
+    attrs.retain(|attr| {
+        for seg in &attr.path.segments {
             if seg.ident == Ident::new(ident, seg.span()) {
-                matched = true;
-                break 'Segment;
+                return false;
             }
         }
-        if matched {
-            to_remove.push(ix)
-        }
-    }
-    to_remove.into_iter().for_each(|ix| {
-        attrs.remove(ix);
+        true
     });
 }
 
@@ -201,8 +193,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let input = TokenStream2::from(input);
 
-    let sync =
-        AmphisbaenaConversion::new(Version::Synchronous, mod_name.as_str()).convert(input.clone());
+    let sync = AmphisbaenaConversion::new(Version::Sync, mod_name.as_str()).convert(input.clone());
     let sync = AsyncAwaitRemoval.remove_async_await(sync);
     let sync_ts = sync.clone().into();
     let sync_test = match &mut parse_macro_input!(sync_ts as Item) {
@@ -216,7 +207,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     };
 
     let asynchronous_test =
-        AmphisbaenaConversion::new(Version::Asynchronous, mod_name.as_str()).convert(input.clone());
+        AmphisbaenaConversion::new(Version::Async, mod_name.as_str()).convert(input.clone());
 
     let test_code = quote! {
         #[test]
