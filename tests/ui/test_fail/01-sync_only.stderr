@@ -1,0 +1,5 @@
+error[E0432]: unresolved import `self::asynchronous`
+  --> $DIR/01-sync_only.rs:11:15
+   |
+11 |     use self::asynchronous::my_fn;
+   |               ^^^^^^^^^^^^ maybe a missing crate `asynchronous`?

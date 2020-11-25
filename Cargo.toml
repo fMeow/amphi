@@ -9,6 +9,9 @@ repository = "https://github.com/fMeow/amphi"
 documentation = "https://docs.rs/amphi"
 keywords = ["async", "macros", "proc_macro"]
 
+[lib]
+proc-macro = true
+
 [dependencies]
 proc-macro2 = "1.0"
 quote = "1.0"
@@ -17,5 +20,17 @@ quote = "1.0"
 version = "1.0"
 features = ["visit-mut", "full"]
 
-[lib]
-proc-macro = true
+[dev-dependencies]
+async-trait = "0.1"
+
+[dev-dependencies.trybuild]
+version = "1"
+features = [ "diff" ]
+
+[dev-dependencies.async-std]
+version = "1"
+features = [ "attributes" ]
+
+[dev-dependencies.tokio]
+version = "0.2.0"
+features = [ "macros", "rt-core" ]

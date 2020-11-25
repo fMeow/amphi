@@ -1,0 +1,8 @@
+error[E0432]: unresolved import `self::sync`
+  --> $DIR/02-async_only.rs:11:15
+   |
+11 |     use self::sync::my_fn;
+   |               ^^^^
+   |               |
+   |               unresolved import
+   |               help: a similar path exists: `async_std::sync`
