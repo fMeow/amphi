@@ -1,6 +1,9 @@
-use syn::{parse::{Parse, ParseStream, Result}, Attribute, Token, ItemMod};
+use syn::{
+    parse::{Parse, ParseStream, Result},
+    Attribute, ItemMod, Token,
+};
 
-pub struct  ItemModRestrict(pub ItemMod);
+pub struct ItemModRestrict(pub ItemMod);
 
 impl Parse for ItemModRestrict {
     fn parse(input: ParseStream) -> Result<Self> {
@@ -11,20 +14,17 @@ impl Parse for ItemModRestrict {
             ahead.parse::<Token![unsafe]>()?;
             lookahead = ahead.lookahead1();
         }
-        if lookahead.peek(Token![pub])
-            || lookahead.peek(Token![mod])
-        {
+        if lookahead.peek(Token![pub]) || lookahead.peek(Token![mod]) {
             if lookahead.peek(Token![pub]) {
                 let ahead = input.fork();
                 ahead.parse::<Token![pub]>()?;
                 lookahead = ahead.lookahead1();
             }
-            if lookahead.peek(Token![mod]){
+            if lookahead.peek(Token![mod]) {
                 let mut item: ItemMod = input.parse()?;
                 item.attrs = attrs;
                 Ok(ItemModRestrict(item))
-            }
-            else{
+            } else {
                 Err(lookahead.error())
             }
         } else {

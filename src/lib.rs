@@ -33,11 +33,11 @@ use syn::{
     NestedMeta,
 };
 
-use crate::visit::{AmphisbaenaConversion, AsyncAwaitRemoval};
 use crate::parse::ItemModRestrict;
+use crate::visit::{AmphisbaenaConversion, AsyncAwaitRemoval};
 
-mod visit;
 mod parse;
+mod visit;
 
 #[derive(Copy, Clone)]
 enum Version {
@@ -135,7 +135,8 @@ pub fn amphi(args: TokenStream, input: TokenStream) -> TokenStream {
     (quote! {
         #asynchronous_mod
         #sync_mod
-    }).into()
+    })
+    .into()
 }
 
 fn remove_ident_from_attribute(attrs: &mut Vec<Attribute>, ident: &str) {
