@@ -66,7 +66,7 @@ fn parse_args(attr_args: AttributeArgs) -> Result<Mode, (Span, &'static str)> {
         1 => {
             let attr = attr_args.get(0).unwrap();
             match attr {
-                NestedMeta::Lit(lit) => Err((lit.span(), "Arguments shoule not be str")),
+                NestedMeta::Lit(lit) => Err((lit.span(), "Arguments should not be str")),
                 NestedMeta::Meta(meta) => {
                     if let Meta::Path(path) = meta {
                         match path.segments.len() {
@@ -90,7 +90,7 @@ fn parse_args(attr_args: AttributeArgs) -> Result<Mode, (Span, &'static str)> {
                     } else {
                         Err((
                             meta.span(),
-                            "Arguments shoule be str: `#[amphi(blocking_only)]` or `#[amphi(async_only)]`",
+                            "Arguments should be str: `#[amphi(blocking_only)]` or `#[amphi(async_only)]`",
                         ))
                     }
                 }
