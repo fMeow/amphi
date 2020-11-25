@@ -1,7 +1,7 @@
 use amphi::amphi;
 
 #[amphi]
-mod amphi{
+mod amphi {
     pub async fn async_fn() -> bool {
         true
     }
@@ -22,4 +22,3 @@ async fn test_tokio() {
     let res = async_fn().await;
     assert_eq!(res, true);
 }
-

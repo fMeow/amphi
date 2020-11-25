@@ -76,7 +76,10 @@ fn parse_args(attr_args: AttributeArgs) -> Result<Mode, (Span, &'static str)> {
                                 } else if &arg == "blocking_only" {
                                     Ok(Mode::SyncOnly)
                                 } else {
-                                    Err((meta.span(), "Only accepts `async_only` or `blocking_only`"))
+                                    Err((
+                                        meta.span(),
+                                        "Only accepts `async_only` or `blocking_only`",
+                                    ))
                                 }
                             }
 
