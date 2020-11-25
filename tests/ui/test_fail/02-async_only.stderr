@@ -1,8 +1,5 @@
-error[E0432]: unresolved import `self::sync`
+error[E0432]: unresolved import `self::blocking`
   --> $DIR/02-async_only.rs:11:15
    |
-11 |     use self::sync::my_fn;
-   |               ^^^^
-   |               |
-   |               unresolved import
-   |               help: a similar path exists: `async_std::sync`
+11 |     use self::blocking::my_fn;
+   |               ^^^^^^^^ maybe a missing crate `blocking`?

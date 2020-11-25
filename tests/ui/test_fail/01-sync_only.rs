@@ -1,6 +1,6 @@
 use amphi::amphi;
 
-#[amphi(sync_only)]
+#[amphi(blocking_only)]
 mod amphi{
     pub async fn my_fn() -> bool {
         true

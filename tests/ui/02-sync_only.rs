@@ -1,6 +1,6 @@
 use amphi::amphi;
 
-#[amphi(sync_only)]
+#[amphi(blocking_only)]
 mod amphi{
     pub async fn my_fn() -> bool {
         true
@@ -8,7 +8,7 @@ mod amphi{
 }
 
 fn main() {
-    use self::sync::my_fn;
+    use self::blocking::my_fn;
     let res = my_fn();
     assert_eq!(res, true);
 }

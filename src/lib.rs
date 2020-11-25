@@ -46,7 +46,7 @@ enum Version {
 impl Version {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Version::Sync => "sync",
+            Version::Sync => "blocking",
             Version::Async => "asynchronous",
         }
     }
@@ -73,10 +73,10 @@ fn parse_args(attr_args: AttributeArgs) -> Result<Mode, (Span, &'static str)> {
                                 let arg = path.segments.first().unwrap().ident.to_string();
                                 if &arg == "async_only" {
                                     Ok(Mode::AsyncOnly)
-                                } else if &arg == "sync_only" {
+                                } else if &arg == "blocking_only" {
                                     Ok(Mode::SyncOnly)
                                 } else {
-                                    Err((meta.span(), "Only accepts `async_only` or `sync_only`"))
+                                    Err((meta.span(), "Only accepts `async_only` or `blocking_only`"))
                                 }
                             }
 
@@ -85,7 +85,7 @@ fn parse_args(attr_args: AttributeArgs) -> Result<Mode, (Span, &'static str)> {
                     } else {
                         Err((
                             meta.span(),
-                            "Arguments shoule be str: `#[amphi(sync_only)]` or `#[amphi(async_only)]`",
+                            "Arguments shoule be str: `#[amphi(blocking_only)]` or `#[amphi(async_only)]`",
                         ))
                     }
                 }
@@ -113,7 +113,7 @@ pub fn amphi(args: TokenStream, input: TokenStream) -> TokenStream {
             let mod_name = format!("{}", item_mod.ident);
 
             let mut sync = item_mod.clone();
-            sync.ident = Ident::new("sync", sync.ident.span());
+            sync.ident = Ident::new("blocking", sync.ident.span());
 
             let mut asynchronous = item_mod.clone();
             asynchronous.ident = Ident::new("asynchronous", sync.ident.span());
@@ -167,13 +167,13 @@ fn parse_test_args(attr_args: AttributeArgs) -> Result<String, (Span, &'static s
                     } else {
                         Err((
                             lit.span(),
-                            "Arguments should be str: like `#[test(\"amphi\")]`",
+                            "Arguments should be str: like `#[test(\"amphi_mod_name\")]`",
                         ))
                     }
                 }
                 NestedMeta::Meta(meta) => Err((
                     meta.span(),
-                    "Arguments should be str: like `#[test(\"amphi\")]`",
+                    "Arguments should be str: like `#[test(\"amphi_mod_name\")]`",
                 )),
             }
         }

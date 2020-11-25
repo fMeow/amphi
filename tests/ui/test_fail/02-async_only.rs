@@ -8,5 +8,5 @@ mod amphi{
 }
 
 fn main() {
-    use self::sync::my_fn;
+    use self::blocking::my_fn;
 }

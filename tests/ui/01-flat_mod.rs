@@ -51,7 +51,7 @@ mod amphi{
 async fn main() {
     // sync
     {
-        use self::sync::{PubTrait, Struct, pub_async_fn};
+        use self::blocking::{PubTrait, Struct, pub_async_fn};
 
         let s = Struct;
         s.declare_async();
