@@ -1,6 +1,6 @@
 //!
 //! # amphi
-//! [![Build Status](https://github.com/fMeow/amphi/workflows/CI%20%28Linux%29/badge.svg?branch=master)](https://github.com/fMeow/amphi/actions)
+//! [![Build Status](https://github.com/fMeow/amphi/workflows/CI%20%28Linux%29/badge.svg?branch=main)](https://github.com/fMeow/amphi/actions)
 //! [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 //! [![Latest Version](https://img.shields.io/crates/v/amphi.svg)](https://crates.io/crates/amphi)
 //! [![amphi](https://docs.rs/amphi/badge.svg)](https://docs.rs/amphi)
