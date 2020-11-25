@@ -34,8 +34,10 @@ use syn::{
 };
 
 use crate::visit::{AmphisbaenaConversion, AsyncAwaitRemoval};
+use crate::parse::ItemModRestrict;
 
 mod visit;
+mod parse;
 
 #[derive(Copy, Clone)]
 enum Version {
@@ -100,7 +102,6 @@ fn parse_args(attr_args: AttributeArgs) -> Result<Mode, (Span, &'static str)> {
 
 // TODO
 //  1. load all files in a mod
-//  2. allow specifying async and sync implementation, #[amphi]
 #[proc_macro_attribute]
 pub fn amphi(args: TokenStream, input: TokenStream) -> TokenStream {
     let attr_args = parse_macro_input!(args as AttributeArgs);
@@ -111,27 +112,19 @@ pub fn amphi(args: TokenStream, input: TokenStream) -> TokenStream {
         }
     };
 
-    let (mod_name, sync, asynchronous) = match &mut parse_macro_input!(input as Item) {
-        Item::Mod(item_mod) => {
-            let mod_name = format!("{}", item_mod.ident);
+    let item_mod = parse_macro_input!(input as ItemModRestrict).0;
+    let mod_name = format!("{}", item_mod.ident);
 
-            let mut sync = item_mod.clone();
-            sync.ident = Ident::new("blocking", sync.ident.span());
+    let mut sync = item_mod.clone();
+    sync.ident = Ident::new("blocking", sync.ident.span());
 
-            let mut asynchronous = item_mod.clone();
-            asynchronous.ident = Ident::new("asynchronous", sync.ident.span());
+    let mut asynchronous = item_mod.clone();
+    asynchronous.ident = Ident::new("asynchronous", sync.ident.span());
 
-            match mode {
-                Mode::SyncOnly => (mod_name, quote!(#sync), quote!()),
-                Mode::AsyncOnly => (mod_name, quote!(), quote!(#asynchronous)),
-                Mode::Both => (mod_name, quote!(#sync), quote!(#asynchronous)),
-            }
-        }
-        _ => {
-            return syn::Error::new(Span::call_site(), "Should apply on a mod")
-                .to_compile_error()
-                .into();
-        }
+    let (sync, asynchronous) = match mode {
+        Mode::SyncOnly => (quote!(#sync), quote!()),
+        Mode::AsyncOnly => (quote!(), quote!(#asynchronous)),
+        Mode::Both => (quote!(#sync), quote!(#asynchronous)),
     };
 
     let asynchronous_mod =
@@ -139,12 +132,10 @@ pub fn amphi(args: TokenStream, input: TokenStream) -> TokenStream {
     let sync_mod = AmphisbaenaConversion::new(Version::Sync, mod_name.as_str()).convert(sync);
     let sync_mod = AsyncAwaitRemoval.remove_async_await(sync_mod);
 
-    let out = quote! {
+    (quote! {
         #asynchronous_mod
         #sync_mod
-    };
-
-    out.into()
+    }).into()
 }
 
 fn remove_ident_from_attribute(attrs: &mut Vec<Attribute>, ident: &str) {

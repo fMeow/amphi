@@ -6,7 +6,7 @@ use quote::quote;
 use syn::{
     parse_quote,
     spanned::Spanned,
-    visit_mut::{self, visit_expr_mut, VisitMut},
+    visit_mut::{self, VisitMut},
     Expr, ExprBlock, File, ImplItem, Item, ItemMod, Stmt, TraitItem, UseTree,
 };
 
