@@ -6,17 +6,30 @@ use quote::quote;
 use syn::{
     parse_quote,
     spanned::Spanned,
-    visit_mut::{self, VisitMut},
-    Expr, ExprBlock, File, ImplItem, Item, TraitItem, UseTree,
+    visit_mut::{self, visit_expr_mut, VisitMut},
+    Expr, ExprBlock, File, ImplItem, Item, ItemMod, Stmt, TraitItem, UseTree,
 };
 
-use crate::visit::attr::pop_attribute;
+use crate::visit::attr::{pop_attribute, remove_matched_attribute};
 use crate::Version;
 
 mod attr;
 
+macro_rules! clean_expr {
+    ($attrs:expr, $preserve:expr, $remove: expr, $node:expr) => {{
+        remove_matched_attribute(&mut $attrs, "amphi", $preserve);
+        if remove_matched_attribute(&mut $attrs, "amphi", $remove).is_some() {
+            // remove expression
+            *$node = Expr::Verbatim(quote! {});
+        }
+    }};
+}
+
+/// replace use tree, fill mod declaration with implementation,
 pub(crate) struct AmphisbaenaConversion {
+    /// async or sync
     version: Version,
+    /// root module name
     mod_name: String,
 }
 
@@ -28,28 +41,31 @@ impl AmphisbaenaConversion {
         }
     }
     pub fn convert(&mut self, item: TokenStream2) -> TokenStream2 {
+        let mut syntax_tree: File = syn::parse(item.into()).unwrap();
+        self.visit_file_mut(&mut syntax_tree);
+        self.tailor_version(&mut syntax_tree);
+        quote!(#syntax_tree)
+    }
+
+    // keep only code that conform to current version (async or sync)
+    fn tailor_version(&self, file: &mut File) {
         let preserve = self.version.as_str();
         let remove = match self.version {
             Version::Async => Version::Sync,
             Version::Sync => Version::Async,
         }
         .as_str();
-
-        let mut syntax_tree: File = syn::parse(item.into()).unwrap();
-        self.visit_file_mut(&mut syntax_tree);
-
         // remove item that violate current version
         // preserve item that conform to current version, and remove tagging attribute
-        syntax_tree.items.iter_mut().for_each(|item| {
+        file.items.iter_mut().for_each(|item| {
             if let Item::Mod(item_mod) = item {
                 attr::mod_remove_items(item_mod, remove);
                 attr::mod_remove_attr(item_mod, preserve);
             }
         });
-
-        quote!(#syntax_tree)
     }
 
+    /// remove all ident to sync or asynchronous according to self.version
     fn replace_use_tree(&self, item: &mut UseTree) {
         match item {
             // A path prefix of imports in a `use` item: `std::...`.
@@ -83,6 +99,40 @@ impl AmphisbaenaConversion {
             _ => {}
         }
     }
+
+    fn fill_mod_declaration(&mut self, item: &mut ItemMod) {
+        let empty_mod = if let Some(true) = item.content.as_ref().map(|x| x.1.is_empty()) {
+            true
+        } else {
+            false
+        };
+        if item.content.is_none() || empty_mod {
+            item.semi = None;
+
+            let filename = pop_attribute(&mut item.attrs, "non_inline_module");
+            if filename.is_none() {
+                // early stop here
+                return;
+            }
+
+            let mut path = filename.unwrap();
+            if path.starts_with("\"") && path.ends_with("\"") {
+                path.remove(0);
+                path.remove(path.len() - 1);
+            } else {
+                // TODO error, path should be string
+            }
+            let mut file = std::fs::File::open(PathBuf::from(path.as_str()))
+                .expect(&format!("Fail to find mod {}", path));
+            let mut content = String::new();
+            file.read_to_string(&mut content).unwrap();
+
+            let mut ast = syn::parse_file(&content).unwrap();
+            self.visit_file_mut(&mut ast);
+            item.attrs.extend(ast.attrs);
+            item.content = Some((syn::token::Brace::default(), ast.items));
+        }
+    }
 }
 
 impl VisitMut for AmphisbaenaConversion {
@@ -92,47 +142,183 @@ impl VisitMut for AmphisbaenaConversion {
 
         match item {
             Item::Use(item_use) => {
+                // leading_colon is some indicating using crates
                 if item_use.leading_colon.is_none() {
-                    // leading_colon is some indicating using crates
                     // here is when use amphi mod
                     self.replace_use_tree(&mut item_use.tree);
                 }
             }
             Item::Mod(item) => {
-                let empty_mod = if let Some(true) = item.content.as_ref().map(|x| x.1.is_empty()) {
-                    true
-                } else {
-                    false
-                };
-                if item.content.is_none() || empty_mod {
-                    item.semi = None;
+                self.fill_mod_declaration(item);
+            }
+            _ => {}
+        }
+    }
 
-                    let filename = pop_attribute(&mut item.attrs, "non_inline_module");
-                    if filename.is_none() {
-                        // early stop here
-                        return;
-                    }
+    fn visit_expr_mut(&mut self, node: &mut Expr) {
+        // Delegate to the default impl to visit nested expressions.
+        visit_mut::visit_expr_mut(self, node);
 
-                    let mut path = filename.unwrap();
-                    if path.starts_with("\"") && path.ends_with("\"") {
-                        path.remove(0);
-                        path.remove(path.len() - 1);
-                    } else {
-                        // TODO error, path should be string
-                    }
-                    let mut file = std::fs::File::open(PathBuf::from(path.as_str()))
-                        .expect(&format!("Fail to find mod {}", path));
-                    let mut content = String::new();
-                    file.read_to_string(&mut content).unwrap();
+        let preserve = self.version.as_str();
+        let remove = match self.version {
+            Version::Async => Version::Sync,
+            Version::Sync => Version::Async,
+        }
+        .as_str();
 
-                    let mut ast = syn::parse_file(&content).unwrap();
+        match node {
+            // A slice literal expression: `[a, b, c, d]`.
+            Expr::Array(expr) => clean_expr!(expr.attrs, preserve, remove, node),
 
-                    self.visit_file_mut(&mut ast);
-                    item.attrs.extend(ast.attrs);
-                    item.content = Some((syn::token::Brace::default(), ast.items));
+            // An assignment expression: `a :&str=compute()`;
+            Expr::Assign(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A compound assignment expression: `counter += 1`.
+            Expr::AssignOp(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // An async block: `async { ... }`.
+            Expr::Async(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // An await expression: `fut.await`.
+            Expr::Await(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A binary operation: `a + b`, `a * b`.
+            Expr::Binary(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A blocked scope: `{ ... }`.
+            Expr::Block(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A box expression: `box f`.
+            Expr::Box(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A `break`, with an optional label to break and an optional expression.
+            Expr::Break(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A function call expression: `invoke(a, b)`.
+            Expr::Call(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A cast expression: `foo as f64`.
+            Expr::Cast(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A closure expression: `|a, b| a + b`.
+            Expr::Closure(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A `continue`, with an optional label.
+            Expr::Continue(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // Access of a named struct field (`obj.k`) or unnamed tuple struct field (`obj.0`).
+            Expr::Field(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A for loop: `for pat in expr { ... }`.
+            Expr::ForLoop(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // An expression contained within invisible delimiters.
+            //
+            // This variant is important for faithfully representing the precedence
+            // of expressions and is related to `None`-delimited spans in a
+            // `TokenStream`.
+            Expr::Group(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // An `if` expression with an optional `else` block: `if expr { ... }
+            // else { ... }`.
+            //
+            // The `else` branch expression may only be an `If` or `Block`
+            // expression, not any of the other types of expression.
+            Expr::If(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A square bracketed indexing expression: `vector[2]`.
+            Expr::Index(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A `let` guard: `let Some(x) = opt`.
+            Expr::Let(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A literal in place of an expression: `1`, `"foo"`.
+            Expr::Lit(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // Conditionless loop: `loop { ... }`.
+            Expr::Loop(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A macro invocation expression: `format!("{}", q)`.
+            Expr::Macro(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A `match` expression: `match n { Some(n) => {}, None => {} }`.
+            Expr::Match(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A method call expression: `x.foo::<T>(a, b)`.
+            Expr::MethodCall(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A parenthesized expression: `(a + b)`.
+            Expr::Paren(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A path like `std::mem::replace` possibly containing generic
+            // parameters and a qualified self-type.
+            //
+            // A plain identifier like `x` is a path of length 1.
+            Expr::Path(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A range expression: `1..2`, `1..`, `..2`, `1..=2`, `..=2`.
+            Expr::Range(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A referencing operation: `&a` or `&mut a`.
+            Expr::Reference(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // An array literal constructed from one repeated element: `[0u8; N]`.
+            Expr::Repeat(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A `return`, with an optional value to be returned.
+            Expr::Return(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A struct literal expression: `Point { x: 1, y: 1 }`.
+            //
+            // The `rest` provides the value of the remaining fields as in `S { a:
+            // 1, b: 1, ..rest }`.
+            Expr::Struct(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A try-expression: `expr?`.
+            Expr::Try(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A try block: `try { ... }`.
+            Expr::TryBlock(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A tuple expression: `(a, b, c, d)`.
+            Expr::Tuple(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A type ascription expression: `foo: f64`.
+            Expr::Type(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A unary operation: `!x`, `*x`.
+            Expr::Unary(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // An unsafe block: `unsafe { ... }`.
+            Expr::Unsafe(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A while loop: `while expr { ... }`.
+            Expr::While(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            // A yield expression: `yield expr`.
+            Expr::Yield(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+
+            _ => {}
+        }
+    }
+
+    fn visit_stmt_mut(&mut self, stmt: &mut Stmt) {
+        // Delegate to the default impl to visit nested expressions.
+        visit_mut::visit_stmt_mut(self, stmt);
+
+        let preserve = self.version.as_str();
+        let remove = match self.version {
+            Version::Async => Version::Sync,
+            Version::Sync => Version::Async,
+        }
+        .as_str();
+        match stmt {
+            Stmt::Local(local) => {
+                remove_matched_attribute(&mut local.attrs, "amphi", preserve);
+                if remove_matched_attribute(&mut local.attrs, "amphi", remove).is_some() {
+                    *stmt = Stmt::Expr(Expr::Verbatim(quote! {}));
                 }
             }
-
             _ => {}
         }
     }
