@@ -26,6 +26,7 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use std::path::PathBuf;
+use std::ffi::OsStr;
 
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
@@ -131,8 +132,9 @@ fn parse_args(attr_args: AttributeArgs) -> Result<AmphiArgs, (Span, &'static str
             },
         }
     }
-    if args.path == PathBuf::from("src/lib") || args.path == PathBuf::from("src/main") {
-        args.path = PathBuf::from("src");
+
+    if args.path.file_name() == Some(OsStr::new("lib")) || args.path.file_name() == Some(OsStr::new("main")) {
+        args.path.pop();
     }
     Ok(args)
 }
