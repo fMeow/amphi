@@ -25,8 +25,8 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-use std::path::PathBuf;
 use std::ffi::OsStr;
+use std::path::PathBuf;
 
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
@@ -133,7 +133,9 @@ fn parse_args(attr_args: AttributeArgs) -> Result<AmphiArgs, (Span, &'static str
         }
     }
 
-    if args.path.file_name() == Some(OsStr::new("lib")) || args.path.file_name() == Some(OsStr::new("main")) {
+    if args.path.file_name() == Some(OsStr::new("lib"))
+        || args.path.file_name() == Some(OsStr::new("main"))
+    {
         args.path.pop();
     }
     Ok(args)
@@ -190,14 +192,34 @@ fn parse_test_args(attr_args: AttributeArgs) -> Result<String, (Span, &'static s
                     } else {
                         Err((
                             lit.span(),
-                            "Arguments should be str: like `#[test(\"amphi_mod_name\")]`",
+                            "Arguments should be str: like `#[test(\"amphi_mod_name\")]` or `#[test(name=\"mod_name\")]`",
                         ))
                     }
                 }
-                NestedMeta::Meta(meta) => Err((
-                    meta.span(),
-                    "Arguments should be str: like `#[test(\"amphi_mod_name\")]`",
-                )),
+                NestedMeta::Meta(meta) => {
+                    if let Meta::NameValue(name_value) = meta {
+                        if name_value.path.is_ident("name") {
+                            if let Lit::Str(mod_name) = &name_value.lit {
+                                Ok(mod_name.value())
+                            } else {
+                                Err((
+                                    name_value.lit.span(),
+                                    "test option mod `name` should be string",
+                                ))
+                            }
+                        } else {
+                            Err((
+                                meta.span(),
+                                "Arguments should be str: like `#[test(\"amphi_mod_name\")]` or `#[test(name=\"mod_name\")]`",
+                            ))
+                        }
+                    } else {
+                        Err((
+                            meta.span(),
+                            "Arguments should be str: like `#[test(\"amphi_mod_name\")]` or `#[test(name=\"mod_name\")]`",
+                        ))
+                    }
+                }
             }
         }
         _ => Err((Span::call_site(), "Accept up to one argument")),
