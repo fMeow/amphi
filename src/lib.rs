@@ -87,6 +87,12 @@ fn parse_args(attr_args: AttributeArgs) -> Result<AmphiArgs, (Span, &'static str
                             return Err((meta_name_value.lit.span(), "path should be string"));
                         };
                         args.path = PathBuf::from(path_value);
+                        if args.path.is_absolute() {
+                            return Err((
+                                meta_name_value.lit.span(),
+                                "Absolute path is not allowed. Please use relative path.",
+                            ));
+                        }
                         if args.path.is_file() {
                             args.path.set_extension("");
                         } else {
