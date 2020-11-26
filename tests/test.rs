@@ -8,4 +8,6 @@ fn ui() {
     t.pass("tests/ui/05-differentiate_sync_async.rs");
     t.compile_fail("tests/ui/test_fail/01-sync_only.rs");
     t.compile_fail("tests/ui/test_fail/02-async_only.rs");
+    t.compile_fail("tests/ui/test_fail/03-amphi_option_gt2.rs");
+    t.compile_fail("tests/ui/test_fail/04-amphi_option_both_async_blocking.rs");
 }

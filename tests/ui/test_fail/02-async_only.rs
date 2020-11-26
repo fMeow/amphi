@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use amphi::amphi;
 
 #[amphi(async_only)]

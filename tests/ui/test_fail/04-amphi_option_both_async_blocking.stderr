@@ -1,0 +1,5 @@
+error: Option `async_only`, `blocking_only` is mutually exclusive
+ --> $DIR/04-amphi_option_both_async_blocking.rs:4:21
+  |
+4 | #[amphi(async_only, blocking_only)]
+  |                     ^^^^^^^^^^^^^

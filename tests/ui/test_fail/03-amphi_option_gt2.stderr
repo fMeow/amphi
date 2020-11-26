@@ -1,0 +1,7 @@
+error: Only up to two argument is accepted
+ --> $DIR/03-amphi_option_gt2.rs:4:1
+  |
+4 | #[amphi(async_only, async_only, async_only)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in an attribute macro (in Nightly builds, run with -Z macro-backtrace for more info)
