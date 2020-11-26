@@ -58,7 +58,7 @@ mod amphi {
         #[amphi(blocking)]
             let _ = Foo(());
         #[amphi(blocking)]
-            { Foo(()) }
+            { Foo(()); }
 
 
         #[amphi(asynchronous)]
