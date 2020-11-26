@@ -26,14 +26,14 @@ macro_rules! clean_expr {
 }
 
 /// replace use tree, fill mod declaration with implementation,
-pub(crate) struct AmphisbaenaConversion {
+pub(crate) struct AmphiConversion {
     /// async or sync
     version: Version,
     /// root module name
     mod_name: String,
 }
 
-impl AmphisbaenaConversion {
+impl AmphiConversion {
     pub fn new<T: Into<String>>(version: Version, mod_name: T) -> Self {
         Self {
             version,

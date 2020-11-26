@@ -34,7 +34,7 @@ use syn::{
 };
 
 use crate::parse::ItemModRestrict;
-use crate::visit::{AmphisbaenaConversion, AsyncAwaitRemoval};
+use crate::visit::{AmphiConversion, AsyncAwaitRemoval};
 
 mod parse;
 mod visit;
@@ -100,8 +100,6 @@ fn parse_args(attr_args: AttributeArgs) -> Result<Mode, (Span, &'static str)> {
     }
 }
 
-// TODO
-//  1. load all files in a mod
 #[proc_macro_attribute]
 pub fn amphi(args: TokenStream, input: TokenStream) -> TokenStream {
     let attr_args = parse_macro_input!(args as AttributeArgs);
@@ -128,8 +126,8 @@ pub fn amphi(args: TokenStream, input: TokenStream) -> TokenStream {
     };
 
     let asynchronous_mod =
-        AmphisbaenaConversion::new(Version::Async, mod_name.as_str()).convert(asynchronous);
-    let sync_mod = AmphisbaenaConversion::new(Version::Sync, mod_name.as_str()).convert(sync);
+        AmphiConversion::new(Version::Async, mod_name.as_str()).convert(asynchronous);
+    let sync_mod = AmphiConversion::new(Version::Sync, mod_name.as_str()).convert(sync);
     let sync_mod = AsyncAwaitRemoval.remove_async_await(sync_mod);
 
     (quote! {
@@ -188,7 +186,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let input = TokenStream2::from(input);
 
-    let sync = AmphisbaenaConversion::new(Version::Sync, mod_name.as_str()).convert(input.clone());
+    let sync = AmphiConversion::new(Version::Sync, mod_name.as_str()).convert(input.clone());
     let sync = AsyncAwaitRemoval.remove_async_await(sync);
     let sync_ts = sync.clone().into();
     let sync_test = match &mut parse_macro_input!(sync_ts as Item) {
@@ -202,7 +200,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     };
 
     let asynchronous_test =
-        AmphisbaenaConversion::new(Version::Async, mod_name.as_str()).convert(input.clone());
+        AmphiConversion::new(Version::Async, mod_name.as_str()).convert(input.clone());
 
     let test_code = quote! {
         #[test]
