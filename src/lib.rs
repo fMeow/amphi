@@ -25,13 +25,11 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
+use std::path::PathBuf;
 
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
-use syn::{
-    parse_macro_input, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Lit, Meta,
-    NestedMeta,
-};
+use syn::{parse_macro_input, spanned::Spanned, AttributeArgs, Ident, Item, Lit, Meta, NestedMeta};
 
 use crate::parse::ItemModRestrict;
 use crate::visit::{AmphiConversion, AsyncAwaitRemoval};
@@ -54,56 +52,95 @@ impl Version {
     }
 }
 
+#[derive(PartialEq)]
 enum Mode {
     SyncOnly,
     AsyncOnly,
     Both,
 }
 
-fn parse_args(attr_args: AttributeArgs) -> Result<Mode, (Span, &'static str)> {
-    match attr_args.len() {
-        0 => Ok(Mode::Both),
-        1 => {
-            let attr = attr_args.get(0).unwrap();
-            match attr {
-                NestedMeta::Lit(lit) => Err((lit.span(), "Arguments should not be literal")),
-                NestedMeta::Meta(meta) => {
-                    if let Meta::Path(path) = meta {
-                        match path.segments.len() {
-                            0 => Ok(Mode::Both),
-                            1 => {
-                                let arg = path.segments.first().unwrap().ident.to_string();
-                                if &arg == "async_only" {
-                                    Ok(Mode::AsyncOnly)
-                                } else if &arg == "blocking_only" {
-                                    Ok(Mode::SyncOnly)
-                                } else {
-                                    Err((
-                                        meta.span(),
-                                        "Only accepts `async_only` or `blocking_only`",
-                                    ))
-                                }
-                            }
+struct AmphiArgs {
+    mode: Mode,
+    path: PathBuf,
+}
 
-                            _ => Err((meta.span(), "Only accepts up to 1 argument")),
+fn parse_args(attr_args: AttributeArgs) -> Result<AmphiArgs, (Span, &'static str)> {
+    if attr_args.len() > 2 {
+        return Err((Span::call_site(), "Only up to two argument is accepted"));
+    }
+    let mut args = AmphiArgs {
+        mode: Mode::Both,
+        path: PathBuf::from("src"),
+    };
+    for attr in &attr_args {
+        match attr {
+            NestedMeta::Lit(lit) => {
+                return Err((lit.span(), "Arguments should not be literal"));
+            }
+            NestedMeta::Meta(meta) => match &meta {
+                Meta::NameValue(meta_name_value) => {
+                    if meta_name_value.path.is_ident("path") {
+                        let path_value = if let Lit::Str(lit_str) = &meta_name_value.lit {
+                            lit_str.value()
+                        } else {
+                            return Err((meta_name_value.lit.span(), "path should be string"));
+                        };
+                        args.path = PathBuf::from(path_value);
+                        if args.path.is_file() {
+                            args.path.set_extension("");
+                        } else {
+                            return Err((meta_name_value.lit.span(), "file not found"));
                         }
                     } else {
-                        Err((
+                        return Err((
                             meta.span(),
-                            "Arguments should be str: `#[amphi(blocking_only)]` or `#[amphi(async_only)]`",
-                        ))
+                            "Only allow `async_only`, `blocking_only`, or `path`",
+                        ));
                     }
                 }
-            }
+                Meta::Path(path) => {
+                    if path.is_ident("async_only") {
+                        if args.mode == Mode::SyncOnly {
+                            return Err((
+                                meta.span(),
+                                "Option `async_only`, `blocking_only` are mutually exclusive",
+                            ));
+                        }
+                        args.mode = Mode::AsyncOnly;
+                    } else if path.is_ident("blocking_only") {
+                        if args.mode == Mode::AsyncOnly {
+                            return Err((
+                                meta.span(),
+                                "Option `async_only`, `blocking_only` is mutually exclusive",
+                            ));
+                        }
+                        args.mode = Mode::SyncOnly;
+                    } else {
+                        return Err((
+                            meta.span(),
+                            "Only allow `async_only`, `blocking_only`, or `path`",
+                        ));
+                    }
+                }
+                _ => {
+                    return Err((
+                        meta.span(),
+                        "Only allow `async_only`, `blocking_only`, or `path`",
+                    ));
+                }
+            },
         }
-        _ => Err((Span::call_site(), "Only one argument is accepted")),
     }
+    if args.path == PathBuf::from("src/lib") || args.path == PathBuf::from("src/main") {
+        args.path = PathBuf::from("src");
+    }
+    Ok(args)
 }
 
 #[proc_macro_attribute]
 pub fn amphi(args: TokenStream, input: TokenStream) -> TokenStream {
     let attr_args = parse_macro_input!(args as AttributeArgs);
-    let mode = match parse_args(attr_args) {
+    let amphi_args = match parse_args(attr_args) {
         Ok(mode) => mode,
         Err((span, message)) => {
             return syn::Error::new(span, message).to_compile_error().into();
@@ -119,15 +156,17 @@ pub fn amphi(args: TokenStream, input: TokenStream) -> TokenStream {
     let mut asynchronous = item_mod.clone();
     asynchronous.ident = Ident::new("asynchronous", sync.ident.span());
 
-    let (sync, asynchronous) = match mode {
+    let (sync, asynchronous) = match amphi_args.mode {
         Mode::SyncOnly => (quote!(#sync), quote!()),
         Mode::AsyncOnly => (quote!(), quote!(#asynchronous)),
         Mode::Both => (quote!(#sync), quote!(#asynchronous)),
     };
 
     let asynchronous_mod =
-        AmphiConversion::new(Version::Async, mod_name.as_str()).convert(asynchronous);
-    let sync_mod = AmphiConversion::new(Version::Sync, mod_name.as_str()).convert(sync);
+        AmphiConversion::new(Version::Async, mod_name.as_str(), amphi_args.path.clone())
+            .convert(asynchronous);
+    let sync_mod =
+        AmphiConversion::new(Version::Sync, mod_name.as_str(), amphi_args.path).convert(sync);
     let sync_mod = AsyncAwaitRemoval.remove_async_await(sync_mod);
 
     (quote! {
@@ -175,7 +214,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let input = TokenStream2::from(input);
 
-    let sync = AmphiConversion::new(Version::Sync, mod_name.as_str()).convert(input.clone());
+    let sync = AmphiConversion::new(Version::Sync, mod_name.as_str(), None).convert(input.clone());
     let sync = AsyncAwaitRemoval.remove_async_await(sync);
     let sync_ts = sync.clone().into();
     let sync_test = match &mut parse_macro_input!(sync_ts as Item) {
@@ -189,7 +228,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     };
 
     let asynchronous_test =
-        AmphiConversion::new(Version::Async, mod_name.as_str()).convert(input.clone());
+        AmphiConversion::new(Version::Async, mod_name.as_str(), None).convert(input.clone());
 
     let test_code = quote! {
         #[test]

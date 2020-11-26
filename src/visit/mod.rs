@@ -34,13 +34,20 @@ pub(crate) struct AmphiConversion {
     version: Version,
     /// root module name
     mod_name: String,
+    /// path
+    path: Option<PathBuf>,
 }
 
 impl AmphiConversion {
-    pub fn new<T: Into<String>>(version: Version, mod_name: T) -> Self {
+    pub fn new<T: Into<String>, P: Into<Option<PathBuf>>>(
+        version: Version,
+        mod_name: T,
+        path: P,
+    ) -> Self {
         Self {
             version,
             mod_name: mod_name.into(),
+            path: path.into(),
         }
     }
     pub fn convert(&mut self, item: TokenStream2) -> TokenStream2 {
@@ -114,8 +121,19 @@ impl AmphiConversion {
                 if item_mod.content.is_some() {
                     for i in &mut item_mod.content.as_mut().unwrap().1 {
                         if matches!(i, Item::Macro(_)) {
-                            // TODO allow non root mod
-                            self.macro_mod_declaration(i, vec![format!("src/{}", &self.mod_name)])?
+                            if self.path.is_some() {
+                                let path = self.path.clone().unwrap();
+                                self.macro_mod_declaration(
+                                    i,
+                                    vec![format!(
+                                        "{}/{}",
+                                        path.to_str().unwrap().to_string(),
+                                        &self.mod_name
+                                    )],
+                                )?
+                            } else {
+                                self.macro_mod_declaration(i, vec![])?
+                            }
                         }
                     }
                 }
