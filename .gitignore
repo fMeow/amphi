@@ -4,3 +4,7 @@ Cargo.lock
 
 .idea/**
 .vscode/**
+
+yarn.lock
+package.json
+**/node_modules
