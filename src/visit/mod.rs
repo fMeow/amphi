@@ -1,6 +1,7 @@
 use std::io::Read;
 use std::path::PathBuf;
 
+use proc_macro::TokenStream;
 use proc_macro2::{Ident, TokenStream as TokenStream2};
 use quote::quote;
 use syn::{
@@ -10,12 +11,14 @@ use syn::{
     Expr, ExprBlock, File, ImplItem, Item, ItemMod, Stmt, TraitItem, UseTree,
 };
 
-use crate::visit::attr::{pop_attribute, remove_matched_attribute};
+use crate::visit::attr::remove_matched_attribute;
 use crate::Version;
 
 mod attr;
 
-macro_rules! clean_expr {
+const MOD_DECLARE: &'static str = "declare_mod";
+
+macro_rules! tailor_expr {
     ($attrs:expr, $preserve:expr, $remove: expr, $node:expr) => {{
         remove_matched_attribute(&mut $attrs, "amphi", $preserve);
         if remove_matched_attribute(&mut $attrs, "amphi", $remove).is_some() {
@@ -42,6 +45,10 @@ impl AmphiConversion {
     }
     pub fn convert(&mut self, item: TokenStream2) -> TokenStream2 {
         let mut syntax_tree: File = syn::parse(item.into()).unwrap();
+
+        if let Err(syn_error) = self.fill_mod(&mut syntax_tree) {
+            return syn_error.into();
+        }
         self.visit_file_mut(&mut syntax_tree);
         self.tailor_version(&mut syntax_tree);
         quote!(#syntax_tree)
@@ -100,58 +107,110 @@ impl AmphiConversion {
         }
     }
 
-    fn fill_mod_declaration(&mut self, item: &mut ItemMod) {
-        let empty_mod = if let Some(true) = item.content.as_ref().map(|x| x.1.is_empty()) {
-            true
-        } else {
-            false
-        };
-        if item.content.is_none() || empty_mod {
-            item.semi = None;
-
-            let filename = pop_attribute(&mut item.attrs, "non_inline_module");
-            if filename.is_none() {
-                // early stop here
-                return;
+    fn fill_mod(&mut self, file: &mut File) -> Result<(), TokenStream> {
+        for item in &mut file.items {
+            // iterate inside the amphi mod
+            if let Item::Mod(item_mod) = item {
+                if item_mod.content.is_some() {
+                    for i in &mut item_mod.content.as_mut().unwrap().1 {
+                        if matches!(i, Item::Macro(_)){
+                            // TODO allow non root mod
+                            self.macro_mod_declaration(i, vec![format!("src/{}", &self.mod_name)])?
+                        }
+                    }
+                }
             }
-
-            let mut path = filename.unwrap();
-            if path.starts_with("\"") && path.ends_with("\"") {
-                path.remove(0);
-                path.remove(path.len() - 1);
-            } else {
-                // TODO error, path should be string
-            }
-            let mut file = std::fs::File::open(PathBuf::from(path.as_str()))
-                .expect(&format!("Fail to find mod {}", path));
-            let mut content = String::new();
-            file.read_to_string(&mut content).unwrap();
-
-            let mut ast = syn::parse_file(&content).unwrap();
-            self.visit_file_mut(&mut ast);
-            item.attrs.extend(ast.attrs);
-            item.content = Some((syn::token::Brace::default(), ast.items));
         }
+        Ok(())
+    }
+    fn macro_mod_declaration(
+        &mut self,
+        item: &mut Item,
+        path: Vec<String>,
+    ) -> Result<(), TokenStream> {
+        if let Item::Macro(item_macro) = item {
+            let macro_name = item_macro
+                .mac
+                .path
+                .segments
+                .first()
+                .map(|p| &format!("{}", p.ident) == MOD_DECLARE);
+            if let Some(true) = macro_name {
+                let token: TokenStream = item_macro.mac.tokens.clone().into();
+
+                match syn::parse::<ItemMod>(token) {
+                    Ok(mut item_mod) => {
+                        if item_mod.semi.is_none() {
+                            return Err(syn::Error::new(
+                                item_macro.span(),
+                                "Only accept mod declaration",
+                            )
+                            .to_compile_error()
+                            .into());
+                        }
+
+                        let mod_name = format!("{}", item_mod.ident);
+
+                        // find mod file
+                        let mut file_path: PathBuf = path.iter().collect();
+                        file_path.push(&mod_name);
+                        file_path.set_extension("rs");
+                        if !file_path.as_path().exists() {
+                            file_path.set_extension("");
+                            file_path.push("mod.rs");
+                            if !file_path.as_path().exists() {
+                                return Err(syn::Error::new(
+                                    item_macro.span(),
+                                    format!("File not found for mod `{}`", &mod_name),
+                                )
+                                .to_compile_error()
+                                .into());
+                            }
+                        }
+
+                        // parse file content
+                        let mut file = std::fs::File::open(file_path).unwrap();
+
+                        let mut content = String::new();
+                        file.read_to_string(&mut content).unwrap();
+
+                        let mut ast = syn::parse_file(&content).unwrap();
+
+                        // recursively update
+                        for item in &mut ast.items {
+                            if matches!(item, Item::Macro(_)){
+                                let mut p = path.clone();
+                                p.push(mod_name.clone());
+                                self.macro_mod_declaration(item, p)?;
+                            }
+                        }
+
+                        item_mod.content = Some((syn::token::Brace::default(), ast.items));
+                        *item = Item::Mod(item_mod);
+                    }
+                    Err(_) => {
+                        return Err(syn::Error::new(item_macro.span(), "Only accept mod declaration, ending with trailing semicolon `;`")
+                            .to_compile_error()
+                            .into());
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
 
-impl VisitMut for AmphisbaenaConversion {
+impl VisitMut for AmphiConversion {
     fn visit_item_mut(&mut self, item: &mut Item) {
         // Delegate to the default impl to visit nested expressions.
         visit_mut::visit_item_mut(self, item);
 
-        match item {
-            Item::Use(item_use) => {
-                // leading_colon is some indicating using crates
-                if item_use.leading_colon.is_none() {
-                    // here is when use amphi mod
-                    self.replace_use_tree(&mut item_use.tree);
-                }
+        if let Item::Use(item_use)= item {
+            // leading_colon is some indicating using crates
+            if item_use.leading_colon.is_none() {
+                // here is when use amphi mod
+                self.replace_use_tree(&mut item_use.tree);
             }
-            Item::Mod(item) => {
-                self.fill_mod_declaration(item);
-            }
-            _ => {}
         }
     }
 
@@ -168,135 +227,135 @@ impl VisitMut for AmphisbaenaConversion {
 
         match node {
             // A slice literal expression: `[a, b, c, d]`.
-            Expr::Array(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Array(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // An assignment expression: `a :&str=compute()`;
-            Expr::Assign(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Assign(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A compound assignment expression: `counter += 1`.
-            Expr::AssignOp(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::AssignOp(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // An async block: `async { ... }`.
-            Expr::Async(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Async(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // An await expression: `fut.await`.
-            Expr::Await(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Await(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A binary operation: `a + b`, `a * b`.
-            Expr::Binary(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Binary(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A blocked scope: `{ ... }`.
-            Expr::Block(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Block(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A box expression: `box f`.
-            Expr::Box(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Box(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A `break`, with an optional label to break and an optional expression.
-            Expr::Break(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Break(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A function call expression: `invoke(a, b)`.
-            Expr::Call(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Call(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A cast expression: `foo as f64`.
-            Expr::Cast(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Cast(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A closure expression: `|a, b| a + b`.
-            Expr::Closure(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Closure(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A `continue`, with an optional label.
-            Expr::Continue(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Continue(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // Access of a named struct field (`obj.k`) or unnamed tuple struct field (`obj.0`).
-            Expr::Field(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Field(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A for loop: `for pat in expr { ... }`.
-            Expr::ForLoop(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::ForLoop(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // An expression contained within invisible delimiters.
             //
             // This variant is important for faithfully representing the precedence
             // of expressions and is related to `None`-delimited spans in a
             // `TokenStream`.
-            Expr::Group(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Group(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // An `if` expression with an optional `else` block: `if expr { ... }
             // else { ... }`.
             //
             // The `else` branch expression may only be an `If` or `Block`
             // expression, not any of the other types of expression.
-            Expr::If(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::If(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A square bracketed indexing expression: `vector[2]`.
-            Expr::Index(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Index(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A `let` guard: `let Some(x) = opt`.
-            Expr::Let(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Let(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A literal in place of an expression: `1`, `"foo"`.
-            Expr::Lit(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Lit(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // Conditionless loop: `loop { ... }`.
-            Expr::Loop(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Loop(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A macro invocation expression: `format!("{}", q)`.
-            Expr::Macro(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Macro(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A `match` expression: `match n { Some(n) => {}, None => {} }`.
-            Expr::Match(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Match(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A method call expression: `x.foo::<T>(a, b)`.
-            Expr::MethodCall(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::MethodCall(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A parenthesized expression: `(a + b)`.
-            Expr::Paren(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Paren(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A path like `std::mem::replace` possibly containing generic
             // parameters and a qualified self-type.
             //
             // A plain identifier like `x` is a path of length 1.
-            Expr::Path(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Path(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A range expression: `1..2`, `1..`, `..2`, `1..=2`, `..=2`.
-            Expr::Range(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Range(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A referencing operation: `&a` or `&mut a`.
-            Expr::Reference(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Reference(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // An array literal constructed from one repeated element: `[0u8; N]`.
-            Expr::Repeat(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Repeat(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A `return`, with an optional value to be returned.
-            Expr::Return(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Return(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A struct literal expression: `Point { x: 1, y: 1 }`.
             //
             // The `rest` provides the value of the remaining fields as in `S { a:
             // 1, b: 1, ..rest }`.
-            Expr::Struct(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Struct(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A try-expression: `expr?`.
-            Expr::Try(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Try(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A try block: `try { ... }`.
-            Expr::TryBlock(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::TryBlock(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A tuple expression: `(a, b, c, d)`.
-            Expr::Tuple(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Tuple(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A type ascription expression: `foo: f64`.
-            Expr::Type(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Type(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A unary operation: `!x`, `*x`.
-            Expr::Unary(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Unary(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // An unsafe block: `unsafe { ... }`.
-            Expr::Unsafe(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Unsafe(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A while loop: `while expr { ... }`.
-            Expr::While(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::While(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             // A yield expression: `yield expr`.
-            Expr::Yield(expr) => clean_expr!(expr.attrs, preserve, remove, node),
+            Expr::Yield(expr) => tailor_expr!(expr.attrs, preserve, remove, node),
 
             _ => {}
         }
