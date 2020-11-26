@@ -10,4 +10,5 @@ fn ui() {
     t.compile_fail("tests/ui/test_fail/02-async_only.rs");
     t.compile_fail("tests/ui/test_fail/03-amphi_option_gt2.rs");
     t.compile_fail("tests/ui/test_fail/04-amphi_option_both_async_blocking.rs");
+    t.compile_fail("tests/ui/test_fail/05-absolute_path.rs");
 }

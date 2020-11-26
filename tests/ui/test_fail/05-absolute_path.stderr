@@ -1,0 +1,5 @@
+error: Absolute path is not allowed. Please use relative path.
+ --> $DIR/05-absolute_path.rs:4:26
+  |
+4 | #[amphi(async_only, path="/home/user/project/lib.rs")]
+  |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
