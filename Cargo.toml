@@ -33,4 +33,4 @@ features = [ "attributes" ]
 
 [dev-dependencies.tokio]
 version = "0.3"
-features = [ "macros", "rt-core" ]
+features = [ "macros", "rt" ]
