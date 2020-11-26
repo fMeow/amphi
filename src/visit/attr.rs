@@ -7,9 +7,7 @@ pub fn find_attribute(attrs: &Vec<Attribute>, to_match: &str) -> bool {
         .iter()
         .take_while(|attr| {
             if let 1 = attr.path.segments.len() {
-                let path_seg = attr.path.segments.first().unwrap();
-                let arg = path_seg.ident.to_string();
-                if &arg == "amphi" {
+                if attr.path.is_ident("amphi") {
                     let tree: TokenTree = syn::parse(attr.tokens.clone().into()).unwrap();
                     if let TokenTree::Group(group) = tree {
                         let arg = group.stream().to_string();
@@ -30,9 +28,7 @@ pub fn pop_attribute(attrs: &mut Vec<Attribute>, ident: &str) -> Option<String> 
     let mut result = None;
     attrs.retain(|attr| {
         if let 1 = attr.path.segments.len() {
-            let path_seg = attr.path.segments.first().unwrap();
-            let arg = path_seg.ident.to_string();
-            if arg.as_str() == ident {
+            if attr.path.is_ident(ident) {
                 let tree: TokenTree = syn::parse(attr.tokens.clone().into()).unwrap();
                 if let TokenTree::Group(group) = tree {
                     result = Some(group.stream().to_string());
@@ -53,9 +49,7 @@ pub fn remove_matched_attribute(
     let mut result = None;
     attrs.retain(|attr| {
         if let 1 = attr.path.segments.len() {
-            let path_seg = attr.path.segments.first().unwrap();
-            let arg = path_seg.ident.to_string();
-            if arg.as_str() == ident {
+            if attr.path.is_ident(ident) {
                 let tree: TokenTree = syn::parse(attr.tokens.clone().into()).unwrap();
                 if let TokenTree::Group(group) = tree {
                     let arg = group.stream().to_string();

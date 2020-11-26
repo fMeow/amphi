@@ -66,7 +66,7 @@ fn parse_args(attr_args: AttributeArgs) -> Result<Mode, (Span, &'static str)> {
         1 => {
             let attr = attr_args.get(0).unwrap();
             match attr {
-                NestedMeta::Lit(lit) => Err((lit.span(), "Arguments should not be str")),
+                NestedMeta::Lit(lit) => Err((lit.span(), "Arguments should not be literal")),
                 NestedMeta::Meta(meta) => {
                     if let Meta::Path(path) = meta {
                         match path.segments.len() {
@@ -137,17 +137,6 @@ pub fn amphi(args: TokenStream, input: TokenStream) -> TokenStream {
     .into()
 }
 
-fn remove_ident_from_attribute(attrs: &mut Vec<Attribute>, ident: &str) {
-    attrs.retain(|attr| {
-        for seg in &attr.path.segments {
-            if seg.ident == Ident::new(ident, seg.span()) {
-                return false;
-            }
-        }
-        true
-    });
-}
-
 fn parse_test_args(attr_args: AttributeArgs) -> Result<String, (Span, &'static str)> {
     match attr_args.len() {
         0 => Ok("amphi".to_string()),
@@ -191,7 +180,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     let sync_ts = sync.clone().into();
     let sync_test = match &mut parse_macro_input!(sync_ts as Item) {
         Item::Fn(item_fn) => {
-            remove_ident_from_attribute(&mut item_fn.attrs, "test");
+            item_fn.attrs.retain(|attr| attr.path.is_ident("test"));
             let name = format!("{}_sync_version", item_fn.sig.ident);
             item_fn.sig.ident = Ident::new(name.as_str(), item_fn.sig.ident.span());
             quote!(#item_fn)

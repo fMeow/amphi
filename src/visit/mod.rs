@@ -78,21 +78,21 @@ impl AmphiConversion {
             // A path prefix of imports in a `use` item: `std::...`.
             UseTree::Path(path) => {
                 self.replace_use_tree(&mut *path.tree);
-                if path.ident == Ident::new(self.mod_name.as_str(), path.span()) {
+                if path.ident.to_string() == self.mod_name {
                     path.ident = Ident::new(self.version.as_str(), path.span());
                 }
             }
 
             // An identifier imported by a `use` item: `HashMap`.
             UseTree::Name(name) => {
-                if name.ident == Ident::new(self.mod_name.as_str(), name.span()) {
+                if name.ident.to_string() == self.mod_name {
                     name.ident = Ident::new(self.version.as_str(), name.span());
                 }
             }
 
             // An renamed identifier imported by a `use` item: `HashMap as Map`.
             UseTree::Rename(rename) => {
-                if rename.ident == Ident::new(self.mod_name.as_str(), rename.span()) {
+                if rename.ident.to_string() == self.mod_name {
                     rename.ident = Ident::new(self.version.as_str(), rename.span());
                 }
             }
@@ -113,7 +113,7 @@ impl AmphiConversion {
             if let Item::Mod(item_mod) = item {
                 if item_mod.content.is_some() {
                     for i in &mut item_mod.content.as_mut().unwrap().1 {
-                        if matches!(i, Item::Macro(_)){
+                        if matches!(i, Item::Macro(_)) {
                             // TODO allow non root mod
                             self.macro_mod_declaration(i, vec![format!("src/{}", &self.mod_name)])?
                         }
@@ -129,13 +129,7 @@ impl AmphiConversion {
         path: Vec<String>,
     ) -> Result<(), TokenStream> {
         if let Item::Macro(item_macro) = item {
-            let macro_name = item_macro
-                .mac
-                .path
-                .segments
-                .first()
-                .map(|p| &format!("{}", p.ident) == MOD_DECLARE);
-            if let Some(true) = macro_name {
+            if item_macro.mac.path.is_ident(MOD_DECLARE) {
                 let token: TokenStream = item_macro.mac.tokens.clone().into();
 
                 match syn::parse::<ItemMod>(token) {
@@ -178,7 +172,7 @@ impl AmphiConversion {
 
                         // recursively update
                         for item in &mut ast.items {
-                            if matches!(item, Item::Macro(_)){
+                            if matches!(item, Item::Macro(_)) {
                                 let mut p = path.clone();
                                 p.push(mod_name.clone());
                                 self.macro_mod_declaration(item, p)?;
@@ -189,9 +183,12 @@ impl AmphiConversion {
                         *item = Item::Mod(item_mod);
                     }
                     Err(_) => {
-                        return Err(syn::Error::new(item_macro.span(), "Only accept mod declaration, ending with trailing semicolon `;`")
-                            .to_compile_error()
-                            .into());
+                        return Err(syn::Error::new(
+                            item_macro.span(),
+                            "Only accept mod declaration, ending with trailing semicolon `;`",
+                        )
+                        .to_compile_error()
+                        .into());
                     }
                 }
             }
@@ -205,7 +202,7 @@ impl VisitMut for AmphiConversion {
         // Delegate to the default impl to visit nested expressions.
         visit_mut::visit_item_mut(self, item);
 
-        if let Item::Use(item_use)= item {
+        if let Item::Use(item_use) = item {
             // leading_colon is some indicating using crates
             if item_use.leading_colon.is_none() {
                 // here is when use amphi mod
