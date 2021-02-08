@@ -32,5 +32,5 @@ version = "1"
 features = [ "attributes" ]
 
 [dev-dependencies.tokio]
-version = "0.3"
+version = "1.2"
 features = [ "macros", "rt" ]
